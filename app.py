@@ -1,214 +1,57 @@
 
+from pathlib import Path
 
-
-import streamlit as st
-import pandas as pd
 import joblib
-import re
-from urllib.parse import urlparse
+import pandas as pd
+import streamlit as st
 
-# Page settings
-st.set_page_config(
-    page_title="Phishing Link Detection",
-    page_icon="🔐",
-    layout="wide"
-)
+HERE = Path(__file__).parent
 
-# Simple styling
-st.markdown("""
-<style>
-.stApp {
-    background-color: #f0f6ff;
+st.set_page_config(page_title="Phishing Website Detector", page_icon="🛡️")
+
+
+@st.cache_resource
+def load_model():
+    data = joblib.load(HERE / "phishing_model.pkl")
+    return data["model"], data["features"]
+
+
+model, features = load_model()
+
+# ---------------- Sidebar: enter the 10 features ----------------
+st.sidebar.image(str(HERE / "logo.png"), width=120)
+st.sidebar.title("Website features")
+
+inputs = {
+    "google_index": st.sidebar.selectbox(
+        "Google index", [0, 1], format_func=lambda x: "Indexed" if x == 0 else "Not indexed"),
+    "dns_record": st.sidebar.selectbox(
+        "DNS record", [0, 1], format_func=lambda x: "Found" if x == 0 else "Not found"),
+    "statistical_report": st.sidebar.selectbox(
+        "In phishing statistics report", [0, 1], format_func=lambda x: "No" if x == 0 else "Yes"),
+    "popup_window": st.sidebar.selectbox(
+        "Popup window on page", [0, 1], format_func=lambda x: "No" if x == 0 else "Yes"),
+    "domain_age": st.sidebar.number_input("Domain age (days, -1 = unknown)", min_value=-1, value=3000),
+    "domain_registration_length": st.sidebar.number_input(
+        "Days until domain expires", min_value=0, value=365),
+    "ratio_intHyperlinks": st.sidebar.slider("Internal links ratio", 0.0, 1.0, 0.8, 0.01),
+    "longest_word_host": st.sidebar.number_input("Longest word in hostname (letters)", min_value=0, value=8),
+    "avg_word_path": st.sidebar.number_input("Average word length in URL path", min_value=0.0, value=5.0),
+    "nb_space": st.sidebar.number_input("Number of spaces in URL", min_value=0, value=0),
 }
-.title-box {
-    background: linear-gradient(90deg, #073b7a, #168de0);
-    padding: 25px;
-    border-radius: 15px;
-    text-align: center;
-    color: white;
-}
-</style>
-""", unsafe_allow_html=True)
+predict = st.sidebar.button("Predict", type="primary")
 
-# Sidebar with image and instructions
-with st.sidebar:
-    st.image(
-        "https://cdn-icons-png.flaticon.com/512/6195/6195699.png",
-        width=130
-    )
+# ---------------- Main page ----------------
+st.title("🛡️ Phishing Website Detector")
+st.write("Enter the website's features in the sidebar, then click **Predict**.")
 
-    st.title("🔐 Stay Safe Online!")
-    st.markdown("---")
+if predict:
+    row = pd.DataFrame([inputs])[features]
+    proba = float(model.predict_proba(row)[0][1])
 
-    st.subheader("About")
-    st.write(
-        "This application uses Machine Learning "
-        "to predict whether a website URL may be suspicious."
-    )
-
-    st.markdown("---")
-
-    st.subheader("How to Use")
-    st.write("1. Enter a website URL.")
-    st.write("2. Choose an example if you want.")
-    st.write("3. Click Check URL.")
-    st.write("4. View the prediction.")
-
-    st.markdown("---")
-    st.caption("Browse Safe • Stay Secure 🔒")
-
-# Main heading
-st.markdown("""
-<div class="title-box">
-    <h1 style="color:white;">🔐 Web Page Phishing Detection</h1>
-    <p>Check whether a website link may be suspicious</p>
-</div>
-""", unsafe_allow_html=True)
-
-# Main image
-st.image(
-    "https://cdn-icons-png.flaticon.com/512/2092/2092663.png",
-    width=90
-)
-
-# URL input
-st.subheader("🔗 Enter Website URL")
-
-url = st.text_input(
-    "Website URL",
-    placeholder="https://example.com"
-)
-
-# Example URLs
-examples = [
-    "Choose an example",
-    "https://www.google.com",
-    "https://www.wikipedia.org",
-    "https://www.microsoft.com",
-    "https://www.amazon.com",
-    "https://www.apple.com",
-    "http://192.168.1.1/login",
-    "http://secure-login-example.com",
-    "http://verify-account-example.test",
-    "http://login-example.test/update"
-]
-
-selected_example = st.selectbox(
-    "⭐ Try an example URL",
-    examples
-)
-
-if selected_example != "Choose an example" and not url:
-    url = selected_example
-
-st.caption(
-    "Examples are for demonstration. "
-    "The trained model determines the prediction."
-)
-
-# Extract URL features
-def extract_features(url, feature_names):
-    if "://" not in url:
-        url = "https://" + url
-
-    parsed = urlparse(url)
-    hostname = parsed.netloc.lower()
-    path = parsed.path
-
-    values = {
-        "Have_IP": int(bool(
-            re.match(r"^(\\d{1,3}\\.){3}\\d{1,3}$", hostname)
-        )),
-        "Have_At": int("@" in url),
-        "URL_Length": len(url),
-        "URL_Depth": path.count("/"),
-        "Redirection": int(url.count("//") > 1),
-        "https_Domain": int("https" in hostname),
-        "TinyURL": int(any(
-            x in hostname
-            for x in ["bit.ly", "tinyurl", "t.co", "goo.gl"]
-        )),
-        "Prefix/Suffix": int("-" in hostname)
-    }
-
-    return pd.DataFrame(
-        [[values.get(name, 0) for name in feature_names]],
-        columns=feature_names
-    )
-
-# Check URL
-if st.button("🔍 Check URL", use_container_width=True):
-
-    if not url.strip() or url == "Choose an example":
-        st.warning("Please enter or select a URL.")
-
+    if proba >= 0.5:
+        st.image(str(HERE / "phishing.png"), width=200)
+        st.error(f"⚠️ Phishing website  ({proba:.0%} probability)")
     else:
-        try:
-            loaded = joblib.load("phishing_model.pkl")
-
-            if isinstance(loaded, dict):
-                model = loaded.get("model")
-                feature_names = loaded.get("features")
-            else:
-                model = loaded
-                feature_names = getattr(
-                    model, "feature_names_in_", None
-                )
-
-            if model is None or feature_names is None:
-                st.error(
-                    "Model or feature names are missing. "
-                    "Please check your saved model."
-                )
-
-            else:
-                features = extract_features(
-                    url.strip(),
-                    list(feature_names)
-                )
-
-                prediction = model.predict(features)[0]
-                label = str(prediction).strip().lower()
-
-                suspicious = label in {
-                    "1", "true", "phishing",
-                    "malicious", "suspicious"
-                }
-
-                st.markdown("---")
-
-                if suspicious:
-                    st.error("🚨 Phishing Link Detected!")
-                    st.write(
-                        "The model predicts that this URL "
-                        "may be suspicious. Browse carefully."
-                    )
-                else:
-                    st.success("✅ URL Predicted as Likely Legitimate")
-                    st.write(
-                        "The model predicts that this URL "
-                        "is likely legitimate."
-                    )
-
-                st.caption(
-                    "A model prediction cannot guarantee "
-                    "that a website is safe."
-                )
-
-        except FileNotFoundError:
-            st.error(
-                "phishing_model.pkl was not found. "
-                "Add it to the same folder as app.py."
-            )
-
-        except Exception as error:
-            st.error(f"Prediction error: {error}")
-
-# Footer
-st.markdown("---")
-st.markdown(
-    "<center>🔒 Browse Safe. Stay Secure.</center>",
-    unsafe_allow_html=True
-)
-
-
+        st.image(str(HERE / "safe.png"), width=200)
+        st.success(f"✅ Legitimate website  ({1 - proba:.0%} probability)")
