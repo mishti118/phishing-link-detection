@@ -1,126 +1,77 @@
-    )
-    st.info("For learning/demo use only. Do not rely on this result alone to decide whether a website is safe.")
+import streamlit as st
+import pandas as pd
+import joblib
+import re
+from urllib.parse import urlparse
 
-# -------------------- Main header --------------------
+st.set_page_config(page_title="Phishing URL Detector", page_icon="🔐", layout="centered")
+
 st.markdown("""
-<div class="hero">
-    <h1>🛡️ PhishGuard</h1>
-    <p>A clean, interactive phishing URL screening dashboard</p>
-</div>
+<style>
+.stApp {background: linear-gradient(135deg, #eef5ff, #f8faff);}
+h1 {color: #173b70;}
+.result {padding: 18px; border-radius: 12px; font-size: 20px; font-weight: 600;}
+</style>
 """, unsafe_allow_html=True)
 
-m1, m2, m3 = st.columns(3)
-with m1:
-    st.markdown('<div class="info-card"><h3>🔎 URL Scan</h3><div class="small-muted">Check a URL using your trained ML model.</div></div>', unsafe_allow_html=True)
-with m2:
-    st.markdown('<div class="info-card"><h3>📊 Model Result</h3><div class="small-muted">See the predicted class and available confidence.</div></div>', unsafe_allow_html=True)
-with m3:
-    st.markdown('<div class="info-card"><h3>🧪 Demo Friendly</h3><div class="small-muted">Try a URL or use the example input.</div></div>', unsafe_allow_html=True)
+st.title("🔐 Phishing URL Detector")
+st.write("Enter a website URL to check whether it may be suspicious.")
 
-st.write("")
-left, right = st.columns([1.45, 1])
+@st.cache_resource
+def load_model():
+    return joblib.load("phishing_model.pkl")
 
-with left:
-    st.subheader("🔗 Check a website URL")
-    example = st.selectbox(
-        "Choose an example (optional)",
-        ["— Choose an example —", "https://www.wikipedia.org", "http://example.com", "https://accounts.google.com"],
-    )
-    default_url = "" if example == "— Choose an example —" else example
-    url = st.text_input(
-        "Website URL",
-        value=default_url,
-        placeholder="e.g. https://www.example.com",
-        help="Enter the full URL, including the domain name.",
-    )
-    scan = st.button("🔍 Check URL", type="primary", use_container_width=True)
+def extract_features(url, feature_names):
+    parsed = urlparse(url if "://" in url else "https://" + url)
+    hostname = parsed.netloc.lower()
+    path = parsed.path
+    values = {
+        "Have_IP": int(bool(re.match(r"^(\d{1,3}\.){3}\d{1,3}$", hostname))),
+        "Have_At": int("@" in url),
+        "URL_Length": len(url),
+        "URL_Depth": path.count("/"),
+        "Redirection": int(url.count("//") > 1),
+        "https_Domain": int("https" in hostname),
+        "TinyURL": int(any(x in hostname for x in ["bit.ly", "tinyurl", "t.co", "goo.gl"])),
+        "Prefix/Suffix": int("-" in hostname),
+    }
+    # Missing feature values are set to 0. Confirm this matches your training notebook.
+    return pd.DataFrame([[values.get(name, 0) for name in feature_names]], columns=feature_names)
 
-with right:
-    st.subheader("💡 URL tips")
-    st.markdown("""
-    <div class="info-card">
-    <b>Before opening a link</b><br><br>
-    • Check the domain spelling.<br>
-    • Be careful with unexpected login/payment links.<br>
-    • HTTPS alone does not guarantee a website is legitimate.<br>
-    • Never enter passwords on a page you do not trust.
-    </div>
-    """, unsafe_allow_html=True)
+url = st.text_input("Website URL", placeholder="https://example.com")
+sample = st.selectbox("Or try an example", ["Choose an example", "https://www.wikipedia.org", "http://192.168.1.1/login", "https://secure-login-example.com"])
+if sample != "Choose an example" and not url:
+    url = sample
 
-if scan:
+if st.button("Check URL", type="primary", use_container_width=True):
     if not url.strip():
         st.warning("Please enter a URL first.")
-    elif "." not in urlparse(url if "://" in url else "http://" + url).netloc:
-        st.warning("Please enter a valid-looking domain, such as https://example.com.")
-    elif not os.path.exists(MODEL_PATH):
-        st.error(f"Could not find `{MODEL_PATH}`. Upload your trained model to the same GitHub repository as `app.py`.")
     else:
         try:
-            with st.spinner("Analyzing URL with your model..."):
-                saved = load_model(MODEL_PATH)
-                if isinstance(saved, dict) and "model" in saved:
-                    model = saved["model"]
-                    features = saved.get("features", [])
+            loaded = load_model()
+            if isinstance(loaded, dict):
+                model = loaded.get("model")
+                feature_names = loaded.get("features")
+            else:
+                model = loaded
+                feature_names = getattr(model, "feature_names_in_", None)
+
+            if model is None or not feature_names:
+                st.error("The model file must contain both a trained model and its feature names.")
+            else:
+                features = extract_features(url.strip(), list(feature_names))
+                prediction = model.predict(features)[0]
+                label = str(prediction).lower()
+                is_suspicious = label in {"1", "true", "phishing", "malicious", "suspicious"}
+
+                if is_suspicious:
+                    st.error("⚠️ This URL is predicted to be suspicious.")
                 else:
-                    model = saved
-                    features = list(getattr(model, "feature_names_in_", []))
+                    st.success("✅ This URL is predicted to be likely legitimate.")
 
-                if not features:
-                    st.error(
-                        "Feature names were not found in the saved model. Save the model together "
-                        "with the exact training feature names, then try again."
-                    )
-                else:
-                    X = prepare_input(url.strip(), features)
-                    pred = model.predict(X)[0]
-                    label = normalize_prediction(pred)
-
-                    st.markdown("### Scan result")
-                    if label == "Phishing / Suspicious":
-                        st.markdown(
-                            '<div class="result-risk"><h3>⚠️ Phishing / Suspicious</h3>'
-                            '<p>The model classified this URL as suspicious. Avoid entering sensitive information.</p></div>',
-                            unsafe_allow_html=True,
-                        )
-                    elif label == "Likely Legitimate":
-                        st.markdown(
-                            '<div class="result-safe"><h3>✅ Likely Legitimate</h3>'
-                            '<p>The model did not flag this URL as phishing. This is not a guarantee of safety.</p></div>',
-                            unsafe_allow_html=True,
-                        )
-                    else:
-                        st.markdown(
-                            f'<div class="result-unknown"><h3>Prediction: {label}</h3>'
-                            '<p>Check your dataset label encoding to ensure the result is interpreted correctly.</p></div>',
-                            unsafe_allow_html=True,
-                        )
-
-                    if hasattr(model, "predict_proba"):
-                        try:
-                            probabilities = model.predict_proba(X)[0]
-                            confidence = float(max(probabilities)) * 100
-                            st.metric("Model confidence (for predicted class)", f"{confidence:.1f}%")
-                            st.caption("Confidence is not a guarantee that the prediction is correct.")
-                        except Exception:
-                            pass
-
-                    with st.expander("Show technical details"):
-                        st.write("Input URL:", url.strip())
-                        st.write("Features passed to model:", features)
-                        st.write("Raw model output:", str(pred))
-                        st.dataframe(X, use_container_width=True)
-        except Exception as exc:
-            st.error("The model could not process this input.")
-            st.code(f"{type(exc).__name__}: {exc}")
-            st.info(
-                "The most common cause is that the input features do not exactly match "
-                "the features used to train the model. The feature extraction code must match your notebook."
-            )
-
-st.divider()
-st.caption("PhishGuard • Educational project prototype • Always verify suspicious links independently.")
-
-
-
-
+                st.caption("This is a model prediction, not a guarantee that a website is safe.")
+        except FileNotFoundError:
+            st.error("Could not find phishing_model.pkl. Add it to the same GitHub folder as app.py.")
+        except Exception as error:
+            st.error(f"Could not check this URL: {error}")
 
