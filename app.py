@@ -5,93 +5,79 @@ import joblib
 import re
 from urllib.parse import urlparse
 
+# Page settings
 st.set_page_config(
     page_title="Phishing Link Detection",
     page_icon="🔐",
     layout="wide"
 )
 
-# ---------- DESIGN ----------
+# Simple styling
 st.markdown("""
 <style>
 .stApp {
-    background: linear-gradient(135deg, #edf4ff, #ffffff);
+    background-color: #f0f6ff;
 }
-h1, h2, h3 {
-    color: #12376a;
-}
-.main-title {
-    background: linear-gradient(100deg, #073b7a, #087ed4);
-    color: white;
-    padding: 28px;
-    border-radius: 18px;
-    text-align: center;
-    margin-bottom: 25px;
-}
-.info-card {
-    background: white;
-    padding: 22px;
+.title-box {
+    background: linear-gradient(90deg, #073b7a, #168de0);
+    padding: 25px;
     border-radius: 15px;
-    border: 1px solid #d9e6fa;
-    margin-top: 15px;
-}
-.stButton > button {
-    background: linear-gradient(90deg, #0866c6, #168de0);
+    text-align: center;
     color: white;
-    border-radius: 10px;
-    border: none;
-    padding: 10px 25px;
-    font-weight: bold;
 }
 </style>
 """, unsafe_allow_html=True)
 
-# ---------- SIDEBAR ----------
+# Sidebar with image and instructions
 with st.sidebar:
     st.image(
         "https://cdn-icons-png.flaticon.com/512/6195/6195699.png",
-        width=140
+        width=130
     )
 
-    st.title("Stay Safe Online!")
+    st.title("🔐 Stay Safe Online!")
     st.markdown("---")
 
-    st.subheader("ℹ️ About")
+    st.subheader("About")
     st.write(
         "This application uses Machine Learning "
-        "to predict whether a website URL may be "
-        "phishing or legitimate."
+        "to predict whether a website URL may be suspicious."
     )
 
     st.markdown("---")
-    st.subheader("💡 How to Use")
+
+    st.subheader("How to Use")
     st.write("1. Enter a website URL.")
-    st.write("2. Or choose an example.")
+    st.write("2. Choose an example if you want.")
     st.write("3. Click Check URL.")
-    st.write("4. View the model prediction.")
+    st.write("4. View the prediction.")
 
     st.markdown("---")
-    st.caption("Browse Safe • Stay Secure 🔐")
+    st.caption("Browse Safe • Stay Secure 🔒")
 
-# ---------- HEADER ----------
+# Main heading
 st.markdown("""
-<div class="main-title">
+<div class="title-box">
     <h1 style="color:white;">🔐 Web Page Phishing Detection</h1>
-    <p>Check whether a website link may be safe or suspicious</p>
+    <p>Check whether a website link may be suspicious</p>
 </div>
 """, unsafe_allow_html=True)
 
-st.markdown(
-    "### 🔗 Enter Website URL"
+# Main image
+st.image(
+    "https://cdn-icons-png.flaticon.com/512/2092/2092663.png",
+    width=90
 )
+
+# URL input
+st.subheader("🔗 Enter Website URL")
 
 url = st.text_input(
     "Website URL",
-    placeholder="https://example.com",
-    label_visibility="collapsed"
+    placeholder="https://example.com"
 )
 
-# ---------- EXAMPLE URLS ----------
+# Example URLs
 examples = [
     "Choose an example",
     "https://www.google.com",
@@ -114,11 +100,11 @@ if selected_example != "Choose an example" and not url:
     url = selected_example
 
 st.caption(
-    "Example URLs are for demonstration. "
+    "Examples are for demonstration. "
     "The trained model determines the prediction."
 )
 
-# ---------- FEATURE EXTRACTION ----------
+# Extract URL features
 def extract_features(url, feature_names):
     if "://" not in url:
         url = "https://" + url
@@ -137,8 +123,8 @@ def extract_features(url, feature_names):
         "Redirection": int(url.count("//") > 1),
         "https_Domain": int("https" in hostname),
         "TinyURL": int(any(
-            domain in hostname
-            for domain in ["bit.ly", "tinyurl", "t.co", "goo.gl"]
+            x in hostname
+            for x in ["bit.ly", "tinyurl", "t.co", "goo.gl"]
         )),
         "Prefix/Suffix": int("-" in hostname)
     }
@@ -148,7 +134,7 @@ def extract_features(url, feature_names):
         columns=feature_names
     )
 
-# ---------- PREDICTION ----------
+# Check URL
 if st.button("🔍 Check URL", use_container_width=True):
 
     if not url.strip() or url == "Choose an example":
@@ -192,19 +178,19 @@ if st.button("🔍 Check URL", use_container_width=True):
                 if suspicious:
                     st.error("🚨 Phishing Link Detected!")
                     st.write(
-                        "This URL is predicted to be suspicious. "
-                        "Avoid entering personal information."
+                        "The model predicts that this URL "
+                        "may be suspicious. Browse carefully."
                     )
                 else:
                     st.success("✅ URL Predicted as Likely Legitimate")
                     st.write(
-                        "The model predicts that this URL is likely "
-                        "legitimate. Always browse carefully."
+                        "The model predicts that this URL "
+                        "is likely legitimate."
                     )
 
                 st.caption(
-                    "This is a machine-learning prediction, "
-                    "not a guarantee that a website is safe."
+                    "A model prediction cannot guarantee "
+                    "that a website is safe."
                 )
 
         except FileNotFoundError:
@@ -216,10 +202,10 @@ if st.button("🔍 Check URL", use_container_width=True):
         except Exception as error:
             st.error(f"Prediction error: {error}")
 
-# ---------- FOOTER ----------
+# Footer
 st.markdown("---")
 st.markdown(
     "<center>🔒 Browse Safe. Stay Secure.</center>",
     unsafe_allow_html=True
 )
-```
+
