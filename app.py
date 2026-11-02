@@ -1,3 +1,35 @@
+import streamlit as st
+import pandas as pd
+import joblib
+import re
+from urllib.parse import urlparse
+
+st.set_page_config(page_title="Phishing URL Detector", page_icon="🔐", layout="centered")
+
+st.markdown("""
+<style>
+.stApp {background: linear-gradient(135deg, #eef5ff, #f8faff);}
+h1 {color: #173b70;}
+.result {padding: 18px; border-radius: 12px; font-size: 20px; font-weight: 600;}
+</style>
+""", unsafe_allow_html=True)
+
+st.title("🔐 Phishing URL Detector")
+st.write("Enter a website URL to check whether it may be suspicious.")
+
+@st.cache_resource
+def load_model():
+    return joblib.load("phishing_model.pkl")
+
+def extract_features(url, feature_names):
+    parsed = urlparse(url if "://" in url else "https://" + url)
+    hostname = parsed.netloc.lower()
+    path = parsed.path
+    values = {
+        "Have_IP": int(bool(re.match(r"^(\d{1,3}\.){3}\d{1,3}$", hostname))),
+        "Have_At": int("@" in url),
+        "URL_Length": len(url),
+        "URL_Depth": path.count("/"),
         "Redirection": int(url.count("//") > 1),
         "https_Domain": int("https" in hostname),
         "TinyURL": int(any(x in hostname for x in ["bit.ly", "tinyurl", "t.co", "goo.gl"])),
