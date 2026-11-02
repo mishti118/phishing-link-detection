@@ -1,4 +1,5 @@
 
+
 import streamlit as st
 import pandas as pd
 import joblib
@@ -121,4 +122,90 @@ def extract_features(url, feature_names):
         "URL_Length": len(url),
         "URL_Depth": path.count("/"),
         "Redirection": int(url.count("//") > 1),
-        "https_Domain
+        "https_Domain": int("https" in hostname),
+        "TinyURL": int(any(
+            x in hostname
+            for x in ["bit.ly", "tinyurl", "t.co", "goo.gl"]
+        )),
+        "Prefix/Suffix": int("-" in hostname)
+    }
+
+    return pd.DataFrame(
+        [[values.get(name, 0) for name in feature_names]],
+        columns=feature_names
+    )
+
+# Check URL
+if st.button("🔍 Check URL", use_container_width=True):
+
+    if not url.strip() or url == "Choose an example":
+        st.warning("Please enter or select a URL.")
+
+    else:
+        try:
+            loaded = joblib.load("phishing_model.pkl")
+
+            if isinstance(loaded, dict):
+                model = loaded.get("model")
+                feature_names = loaded.get("features")
+            else:
+                model = loaded
+                feature_names = getattr(
+                    model, "feature_names_in_", None
+                )
+
+            if model is None or feature_names is None:
+                st.error(
+                    "Model or feature names are missing. "
+                    "Please check your saved model."
+                )
+
+            else:
+                features = extract_features(
+                    url.strip(),
+                    list(feature_names)
+                )
+
+                prediction = model.predict(features)[0]
+                label = str(prediction).strip().lower()
+
+                suspicious = label in {
+                    "1", "true", "phishing",
+                    "malicious", "suspicious"
+                }
+
+                st.markdown("---")
+
+                if suspicious:
+                    st.error("🚨 Phishing Link Detected!")
+                    st.write(
+                        "The model predicts that this URL "
+                        "may be suspicious. Browse carefully."
+                    )
+                else:
+                    st.success("✅ URL Predicted as Likely Legitimate")
+                    st.write(
+                        "The model predicts that this URL "
+                        "is likely legitimate."
+                    )
+
+                st.caption(
+                    "A model prediction cannot guarantee "
+                    "that a website is safe."
+                )
+
+        except FileNotFoundError:
+            st.error(
+                "phishing_model.pkl was not found. "
+                "Add it to the same folder as app.py."
+            )
+
+        except Exception as error:
+            st.error(f"Prediction error: {error}")
+
+# Footer
+st.markdown("---")
+st.markdown(
+    "<center>🔒 Browse Safe. Stay Secure.</center>",
+    unsafe_allow_html=True
+)
