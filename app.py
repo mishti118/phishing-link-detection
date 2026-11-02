@@ -1,5 +1,4 @@
 
-
 import streamlit as st
 import pandas as pd
 import joblib
@@ -9,12 +8,9 @@ import re
 import ipaddress
 
 from urllib.parse import urlparse
-from pathlib import Path
 
 
-# -----------------------------------------
-# PAGE CONFIGURATION
-# -----------------------------------------
+# ---------------- PAGE CONFIGURATION ----------------
 
 st.set_page_config(
     page_title="Phishing Website Detection",
@@ -23,75 +19,74 @@ st.set_page_config(
 )
 
 
-# -----------------------------------------
-# LOAD MODEL FROM ZIP
-# -----------------------------------------
+# ---------------- LOAD MODEL ----------------
 
 @st.cache_resource
 def load_model():
 
-    zip_path = Path("model.zip")
+    with zipfile.ZipFile("model.zip", "r") as zip_file:
 
-    if not zip_path.exists():
-        raise FileNotFoundError("model.zip not found!")
-
-    with zipfile.ZipFile(zip_path, "r") as z:
-        model_files = [
-            name for name in z.namelist()
-            if name.endswith(".pkl")
+        pkl_files = [
+            file for file in zip_file.namelist()
+            if file.endswith(".pkl")
         ]
 
-        if not model_files:
-            raise ValueError("No model file found inside model.zip")
+        if not pkl_files:
+            raise FileNotFoundError("No model file found inside model.zip")
 
-        model_bytes = z.read(model_files[0])
+        with zip_file.open(pkl_files[0]) as file:
+            model_data = joblib.load(io.BytesIO(file.read()))
 
-    model_data = joblib.load(io.BytesIO(model_bytes))
+    model = model_data["model"]
+    features = model_data["features"]
 
-    return model_data["model"], model_data["features"]
-
-
-model, features = load_model()
+    return model, features
 
 
-# -----------------------------------------
-# FEATURE EXTRACTION
-# -----------------------------------------
+try:
+    model, features = load_model()
+
+except Exception as e:
+    st.error(f"Error loading model: {e}")
+    st.stop()
+
+
+# ---------------- FEATURE EXTRACTION ----------------
 
 def extract_features(url):
 
     url = url.strip()
 
-    if not re.match(r"^https?://", url, re.I):
+    if not url.startswith(("http://", "https://")):
         url = "https://" + url
 
     parsed = urlparse(url)
+
     hostname = parsed.hostname or ""
     path = parsed.path or ""
 
-    if not hostname:
-        raise ValueError("Please enter a valid website URL.")
-
+    # Check whether hostname is an IP address
     try:
         ipaddress.ip_address(hostname)
         ip = 1
     except ValueError:
         ip = 0
 
+    # Extract port
     try:
-        port = int(parsed.port is not None)
+        port = 1 if parsed.port is not None else 0
     except ValueError:
-        raise ValueError("Invalid port in URL.")
+        port = 0
 
-    url_lower = url.lower()
-    host_lower = hostname.lower()
-
+    # Count digits
     digits_url = sum(c.isdigit() for c in url)
     digits_host = sum(c.isdigit() for c in hostname)
 
-    path_suffix = Path(path).suffix
+    # Calculate digit ratios
+    ratio_digits_url = digits_url / len(url) if len(url) else 0
+    ratio_digits_host = digits_host / len(hostname) if len(hostname) else 0
 
-    # Calculate all 32 features
+    # Count URL features
     data = {
 
         "length_url": len(url),
@@ -134,102 +129,125 @@ def extract_features(url):
 
         "nb_space": url.count(" "),
 
-        "nb_www": url_lower.count("www"),
+        "nb_www": url.lower().count("www"),
 
-        "nb_com": url_lower.count("com"),
+        "nb_com": url.lower().count(".com"),
 
-        "nb_dslash": max(0, url.count("//") - 1),
+        "nb_dslash": max(url.count("//") - 1, 0),
 
         "http_in_path": path.lower().count("http"),
 
-        "https_token": int("https" in host_lower),
+        "https_token": int("https" in hostname.lower()),
 
-        "ratio_digits_url": digits_url / len(url) if url else 0,
+        "ratio_digits_url": ratio_digits_url,
 
-        "ratio_digits_host": digits_host / len(hostname) if hostname else 0,
+        "ratio_digits_host": ratio_digits_host,
 
-        "punycode": int("xn--" in host_lower),
+        "punycode": int("xn--" in hostname.lower()),
 
         "port": port,
 
-        "nb_subdomains": hostname.count("."),
+        "nb_subdomains": max(len(hostname.split(".")) - 2, 0),
 
         "prefix_suffix": int("-" in hostname),
 
-        "path_extension": int(bool(path_suffix))
-
+        "path_extension": int(
+            bool(re.search(
+                r"\.(php|html|htm|asp|aspx|jsp|cgi)$",
+                path.lower()
+            ))
+        )
     }
 
-    return pd.DataFrame([data])[features]
+    # Arrange features in the exact order expected by the model
+    feature_data = pd.DataFrame([data])
+
+    return feature_data[features]
 
 
-# -----------------------------------------
-# SIDEBAR
-# -----------------------------------------
+# ---------------- SIDEBAR ----------------
 
 with st.sidebar:
 
-    try:
-        st.image("sidebar_image.png", use_container_width=True)
-    except:
-        st.info("Add sidebar_image.png to your project.")
+    st.image(
+        "sidebar_image.png",
+        use_container_width=True
+    )
 
-    st.title("🛡️ Phishing Detector")
+    st.title("Phishing Detection")
 
     st.write(
-        "Protect yourself from suspicious "
-        "and fraudulent websites using Machine Learning."
+        "Protect yourself from suspicious and malicious websites."
     )
 
     st.divider()
 
-    st.subheader("About Project")
-
-    st.write(
-        "This application uses a Random Forest "
-        "Classifier to detect phishing websites."
+    st.info(
+        "Enter a website URL or select an example to check it."
     )
 
-    st.caption("Machine Learning Based Detection")
 
+# ---------------- MAIN PAGE ----------------
 
-# -----------------------------------------
-# MAIN PAGE
-# -----------------------------------------
-
-st.title("Website Phishing Detection")
+st.title("🛡️ Phishing Website Detection")
 
 st.write(
-    "Enter a website URL below to check whether "
-    "it is legitimate or potentially a phishing website."
+    "This application uses Machine Learning to predict "
+    "whether a website URL is legitimate or phishing."
 )
 
 st.divider()
 
 
-# -----------------------------------------
-# URL INPUT
-# -----------------------------------------
+# ---------------- EXAMPLE URLS ----------------
 
-st.subheader("🔗 Enter Website URL")
+st.subheader("🌐 Try Example Websites")
 
-website_url = st.text_input(
-    "Website URL",
-    placeholder="https://example.com"
+examples = {
+
+    "Google - Legitimate": "https://www.google.com",
+
+    "Wikipedia - Legitimate": "https://www.wikipedia.org",
+
+    "GitHub - Legitimate": "https://github.com",
+
+    "Suspicious Login Example": "http://paypal-login-security.example.com/verify",
+
+    "Suspicious Account Example": "http://account-update-confirm.example.com/login"
+}
+
+
+def update_example_url():
+
+    selected = st.session_state.example_choice
+
+    if selected != "Select an example":
+
+        st.session_state.url_input = examples[selected]
+
+
+st.selectbox(
+    "Choose an example website:",
+    ["Select an example"] + list(examples.keys()),
+    key="example_choice",
+    on_change=update_example_url
 )
 
-st.caption(
-    "Example: https://www.google.com"
+
+# ---------------- URL INPUT ----------------
+
+url = st.text_input(
+    "Enter Website URL",
+    placeholder="https://www.example.com",
+    key="url_input"
 )
 
 
-# -----------------------------------------
-# PREDICTION
-# -----------------------------------------
+# ---------------- PREDICTION ----------------
 
 if st.button("🔍 Detect Phishing", use_container_width=True):
 
-    if not website_url.strip():
+    if not url.strip():
 
         st.warning("Please enter a website URL.")
 
@@ -237,63 +255,83 @@ if st.button("🔍 Detect Phishing", use_container_width=True):
 
         try:
 
-            input_data = extract_features(website_url)
+            with st.spinner("Analyzing website URL..."):
 
-            prediction = model.predict(input_data)[0]
+                input_features = extract_features(url)
 
-            probabilities = model.predict_proba(input_data)[0]
+                prediction = model.predict(input_features)[0]
 
-            classes = list(model.classes_)
+                # Get prediction probabilities
+                probabilities = model.predict_proba(input_features)[0]
 
-            phishing_probability = probabilities[
-                classes.index(1)
-            ]
+                # Find probability corresponding to each class
+                classes = list(model.classes_)
 
-            legitimate_probability = probabilities[
-                classes.index(0)
-            ]
+                phishing_probability = probabilities[classes.index(1)]
+                legitimate_probability = probabilities[classes.index(0)]
 
             st.divider()
 
-            st.subheader("Prediction Result")
+            st.subheader("📊 Detection Result")
+
+            st.write("Website URL:", url)
 
             if prediction == 1:
 
-                st.error("⚠️ PHISHING WEBSITE DETECTED")
+                st.error(
+                    "⚠️ This website is predicted to be PHISHING!"
+                )
 
-                st.write(
-                    "This website has been classified "
-                    "as potentially malicious."
+                st.metric(
+                    "Phishing Confidence",
+                    f"{phishing_probability * 100:.2f}%"
                 )
 
             else:
 
-                st.success("✅ LEGITIMATE WEBSITE")
-
-                st.write(
-                    "This website has been classified "
-                    "as legitimate by the model."
+                st.success(
+                    "✅ This website is predicted to be LEGITIMATE!"
                 )
+
+                st.metric(
+                    "Legitimate Confidence",
+                    f"{legitimate_probability * 100:.2f}%"
+                )
+
+            st.subheader("Prediction Probabilities")
 
             col1, col2 = st.columns(2)
 
             with col1:
-                st.metric(
-                    "Phishing Probability",
-                    f"{phishing_probability * 100:.2f}%"
-                )
 
-            with col2:
                 st.metric(
-                    "Legitimate Probability",
+                    "Legitimate",
                     f"{legitimate_probability * 100:.2f}%"
                 )
 
+            with col2:
+
+                st.metric(
+                    "Phishing",
+                    f"{phishing_probability * 100:.2f}%"
+                )
+
             st.caption(
-                "Predictions are based on URL characteristics "
-                "and are not a guarantee of website safety."
+                "Note: This is a machine-learning prediction, "
+                "not a guarantee that a website is safe. "
+                "The application analyzes URL features and does not "
+                "verify the website's actual content."
             )
 
         except Exception as e:
 
-            st.error(f"Prediction error: {e}")
+            st.error(f"An error occurred: {e}")
+
+
+# ---------------- FOOTER ----------------
+
+st.divider()
+
+st.caption(
+    "Phishing Website Detection System | Machine Learning Project"
+)
